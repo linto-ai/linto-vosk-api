@@ -42,7 +42,7 @@ enum KaldiRecognizerState {
 
 class KaldiRecognizer {
     public:
-        KaldiRecognizer(Model *model, float sample_frequency);
+        KaldiRecognizer(Model *model, float sample_frequency, bool online);
         KaldiRecognizer(Model *model, float sample_frequency, SpkModel *spk_model);
         KaldiRecognizer(Model *model, float sample_frequency, char const *grammar);
         ~KaldiRecognizer();
@@ -67,6 +67,7 @@ class KaldiRecognizer {
         const char *GetResult();
         const char *StoreEmptyReturn();
         const char *StoreReturn(const string &res);
+        const char *TextResult(CompactLattice &clat);
         const char *MbrResult(CompactLattice &clat);
         const char *NbestResult(CompactLattice &clat);
 
@@ -102,6 +103,11 @@ class KaldiRecognizer {
 
         KaldiRecognizerState state_;
         string last_result_;
+
+        bool online_;
+        bool do_timestamp_ = false;
+        float confidence = 0.0;
+        int tot_size = 0;
 };
 
 #endif /* VOSK_KALDI_RECOGNIZER_H */

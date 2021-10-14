@@ -22,8 +22,8 @@ _c = open_dll()
 
 class Model(object):
 
-    def __init__(self, model_path):
-        self._handle = _c.vosk_model_new(model_path.encode('utf-8'))
+    def __init__(self, acmodel_path, langmodel_path, config_file_path):
+        self._handle = _c.vosk_model_new(acmodel_path.encode('utf-8'), langmodel_path.encode('utf-8'), config_file_path.encode('utf-8'))
 
     def __del__(self):
         _c.vosk_model_free(self._handle)
@@ -42,8 +42,8 @@ class SpkModel(object):
 class KaldiRecognizer(object):
 
     def __init__(self, *args):
-        if len(args) == 2:
-            self._handle = _c.vosk_recognizer_new(args[0]._handle, args[1])
+        if len(args) == 3 and type(args[2]) is bool:
+            self._handle = _c.vosk_recognizer_new(args[0]._handle, args[1], args[2])
         elif len(args) == 3 and type(args[2]) is SpkModel:
             self._handle = _c.vosk_recognizer_new_spk(args[0]._handle, args[1], args[2]._handle)
         elif len(args) == 3 and type(args[2]) is str:

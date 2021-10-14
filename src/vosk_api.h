@@ -44,7 +44,7 @@ typedef struct VoskRecognizer VoskRecognizer;
  *
  * @param model_path: the path of the model on the filesystem
  @ @returns model object */
-VoskModel *vosk_model_new(const char *model_path);
+VoskModel *vosk_model_new(const char *acmodel_path, const char *langmodel_path, const char *config_file_path);
 
 
 /** Releases the model memory
@@ -82,7 +82,7 @@ void vosk_spk_model_free(VoskSpkModel *model);
  *  The recognizers process the speech and return text using shared model data 
  *  @param sample_rate The sample rate of the audio you going to feed into the recognizer
  *  @returns recognizer object */
-VoskRecognizer *vosk_recognizer_new(VoskModel *model, float sample_rate);
+VoskRecognizer *vosk_recognizer_new(VoskModel *model, float sample_rate, bool online);
 
 
 /** Creates the recognizer object with speaker recognition

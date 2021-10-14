@@ -103,125 +103,80 @@ static void KaldiLogHandler(const LogMessageEnvelope &env, const char *message)
 }
 #endif
 
-Model::Model(const char *model_path) : model_path_str_(model_path) {
+
+Model::Model(const char *acmodel_path, const char *langmodel_path, const char *config_file_path) : acmodel_path_str_(acmodel_path), langmodel_path_str_(langmodel_path), config_file_path_str_(config_file_path) {
 
     SetLogHandler(KaldiLogHandler);
-
-    struct stat buffer;
-    string am_v2_path = model_path_str_ + "/am/final.mdl";
-    string mfcc_v2_path = model_path_str_ + "/conf/mfcc.conf";
-    string am_v1_path = model_path_str_ + "/final.mdl";
-    string mfcc_v1_path = model_path_str_ + "/mfcc.conf";
-    if (stat(am_v2_path.c_str(), &buffer) == 0 && stat(mfcc_v2_path.c_str(), &buffer) == 0) {
-        ConfigureV2();
-        ReadDataFiles();
-    } else if (stat(am_v1_path.c_str(), &buffer) == 0 && stat(mfcc_v1_path.c_str(), &buffer) == 0) {
-        ConfigureV1();
-        ReadDataFiles();
-    } else {
-        KALDI_ERR << "Folder '" << model_path_str_ << "' does not contain model files. " <<
-                     "Make sure you specified the model path properly in Model constructor. " <<
-                     "If you are not sure about relative path, use absolute path specification.";
-    }
+    Configure();
+    ReadDataFiles();
 
     ref_cnt_ = 1;
 }
 
-// Old model layout without model configuration file
-
-void Model::ConfigureV1()
+void Model::Configure()
 {
-    const char *extra_args[] = {
-        "--max-active=7000",
-        "--beam=13.0",
-        "--lattice-beam=6.0",
-        "--acoustic-scale=1.0",
+    struct stat buffer;
 
-        "--frame-subsampling-factor=3",
-
-        "--endpoint.silence-phones=1:2:3:4:5:6:7:8:9:10",
-        "--endpoint.rule2.min-trailing-silence=0.5",
-        "--endpoint.rule3.min-trailing-silence=1.0",
-        "--endpoint.rule4.min-trailing-silence=2.0",
-
-        "--print-args=false",
-    };
-
-    kaldi::ParseOptions po("");
-    nnet3_decoding_config_.Register(&po);
-    endpoint_config_.Register(&po);
-    decodable_opts_.Register(&po);
-
-    vector<const char*> args;
-    args.push_back("vosk");
-    args.insert(args.end(), extra_args, extra_args + sizeof(extra_args) / sizeof(extra_args[0]));
-    po.Read(args.size(), args.data());
-
-    nnet3_rxfilename_ = model_path_str_ + "/final.mdl";
-    hclg_fst_rxfilename_ = model_path_str_ + "/HCLG.fst";
-    hcl_fst_rxfilename_ = model_path_str_ + "/HCLr.fst";
-    g_fst_rxfilename_ = model_path_str_ + "/Gr.fst";
-    disambig_rxfilename_ = model_path_str_ + "/disambig_tid.int";
-    word_syms_rxfilename_ = model_path_str_ + "/words.txt";
-    winfo_rxfilename_ = model_path_str_ + "/word_boundary.int";
-    carpa_rxfilename_ = model_path_str_ + "/rescore/G.carpa";
-    std_fst_rxfilename_ = model_path_str_ + "/rescore/G.fst";
-    final_ie_rxfilename_ = model_path_str_ + "/ivector/final.ie";
-    mfcc_conf_rxfilename_ = model_path_str_ + "/mfcc.conf";
-    global_cmvn_stats_rxfilename_ = model_path_str_ + "/global_cmvn.stats";
-    pitch_conf_rxfilename_ = model_path_str_ + "/pitch.conf";
-    rnnlm_word_feats_rxfilename_ = model_path_str_ + "/rnnlm/word_feats.txt";
-    rnnlm_feat_embedding_rxfilename_ = model_path_str_ + "/rnnlm/feat_embedding.final.mat";
-    rnnlm_config_rxfilename_ = model_path_str_ + "/rnnlm/special_symbol_opts.conf";
-    rnnlm_lm_rxfilename_ = model_path_str_ + "/rnnlm/final.raw";
-    rnnlm_lm_fst_rxfilename_ = model_path_str_ + "/rescore/G.fst";
-}
-
-void Model::ConfigureV2()
-{
     kaldi::ParseOptions po("something");
     nnet3_decoding_config_.Register(&po);
     endpoint_config_.Register(&po);
     decodable_opts_.Register(&po);
-    po.ReadConfigFile(model_path_str_ + "/conf/model.conf");
+    feature_config_.Register(&po);
+
+    if (stat(config_file_path_str_.c_str(), &buffer) == 0){
+      KALDI_LOG << "Loading decode config file from " << config_file_path_str_;
+      po.ReadConfigFile(config_file_path_str_);
+    } else {
+      po.ReadConfigFile(acmodel_path_str_ + "/conf/online.conf"); }
 
 
-    nnet3_rxfilename_ = model_path_str_ + "/am/final.mdl";
-    hclg_fst_rxfilename_ = model_path_str_ + "/graph/HCLG.fst";
-    hcl_fst_rxfilename_ = model_path_str_ + "/graph/HCLr.fst";
-    g_fst_rxfilename_ = model_path_str_ + "/graph/Gr.fst";
-    disambig_rxfilename_ = model_path_str_ + "/graph/disambig_tid.int";
-    word_syms_rxfilename_ = model_path_str_ + "/graph/words.txt";
-    winfo_rxfilename_ = model_path_str_ + "/graph/phones/word_boundary.int";
-    carpa_rxfilename_ = model_path_str_ + "/rescore/G.carpa";
-    std_fst_rxfilename_ = model_path_str_ + "/rescore/G.fst";
-    final_ie_rxfilename_ = model_path_str_ + "/ivector/final.ie";
-    mfcc_conf_rxfilename_ = model_path_str_ + "/conf/mfcc.conf";
-    global_cmvn_stats_rxfilename_ = model_path_str_ + "/am/global_cmvn.stats";
-    pitch_conf_rxfilename_ = model_path_str_ + "/conf/pitch.conf";
-    rnnlm_word_feats_rxfilename_ = model_path_str_ + "/rnnlm/word_feats.txt";
-    rnnlm_feat_embedding_rxfilename_ = model_path_str_ + "/rnnlm/feat_embedding.final.mat";
-    rnnlm_config_rxfilename_ = model_path_str_ + "/rnnlm/special_symbol_opts.conf";
-    rnnlm_lm_rxfilename_ = model_path_str_ + "/rnnlm/final.raw";
-    rnnlm_lm_fst_rxfilename_ = model_path_str_ + "/rescore/G.fst";
+    nnet3_rxfilename_ = acmodel_path_str_ + "/final.mdl";
+    hclg_fst_rxfilename_ = langmodel_path_str_ + "/HCLG.fst";
+    hcl_fst_rxfilename_ = langmodel_path_str_ + "/HCLr.fst";
+    g_fst_rxfilename_ = langmodel_path_str_ + "/Gr.fst";
+    disambig_rxfilename_ = langmodel_path_str_ + "/disambig_tid.int";
+    word_syms_rxfilename_ = langmodel_path_str_ + "/words.txt";
+    winfo_rxfilename_ = langmodel_path_str_ + "/word_boundary.int";
+    //Graph rescoring files
+    carpa_rxfilename_ = langmodel_path_str_ + "/rescore/G.carpa";
+    std_fst_rxfilename_ = langmodel_path_str_ + "/rescore/G.fst";
+    //RNNLM rescoring files
+    rnnlm_word_feats_rxfilename_ = acmodel_path_str_ + "/rnnlm/word_feats.txt";
+    rnnlm_feat_embedding_rxfilename_ = acmodel_path_str_ + "/rnnlm/feat_embedding.final.mat";
+    rnnlm_config_rxfilename_ = acmodel_path_str_ + "/rnnlm/special_symbol_opts.conf";
+    rnnlm_lm_rxfilename_ = acmodel_path_str_ + "/rnnlm/final.raw";
 }
 
 void Model::ReadDataFiles()
 {
     struct stat buffer;
 
-    KALDI_LOG << "Decoding params beam=" << nnet3_decoding_config_.beam <<
+    KALDI_LOG << "am_file=" << nnet3_rxfilename_ << "\n" <<
+         " Decoding params beam=" << nnet3_decoding_config_.beam <<
          " max-active=" << nnet3_decoding_config_.max_active <<
          " lattice-beam=" << nnet3_decoding_config_.lattice_beam;
-    KALDI_LOG << "Silence phones " << endpoint_config_.silence_phones;
 
-    feature_info_.feature_type = "mfcc";
-    ReadConfigFromFile(mfcc_conf_rxfilename_, &feature_info_.mfcc_opts);
-    feature_info_.mfcc_opts.frame_opts.allow_downsample = true; // It is safe to downsample
+    //load feature extraction config and ivector extractiong config
+    feature_info_ = new kaldi::OnlineNnet2FeaturePipelineInfo (feature_config_);
 
-    feature_info_.silence_weighting_config.silence_weight = 1e-3;
-    feature_info_.silence_weighting_config.silence_phones_str = endpoint_config_.silence_phones;
+    // activate wave upsample/downsample
+    if (feature_config_.feature_type == "mfcc") {
+      feature_info_->mfcc_opts.frame_opts.allow_downsample = true;
+      feature_info_->mfcc_opts.frame_opts.allow_upsample = true;
+    } else if (feature_config_.feature_type == "plp") {
+      feature_info_->plp_opts.frame_opts.allow_downsample = true;
+      feature_info_->plp_opts.frame_opts.allow_upsample = true;
+    } else if (feature_config_.feature_type == "fbank") {
+      feature_info_->fbank_opts.frame_opts.allow_downsample = true;
+      feature_info_->fbank_opts.frame_opts.allow_upsample = true;
+    } else {
+      KALDI_ERR << "Code error: invalid feature type " << feature_config_.feature_type;
+    }
 
+    //set silence phones for ivector update and create ivector adaptation state object
+    feature_info_->silence_weighting_config.silence_phones_str = endpoint_config_.silence_phones;
+
+    //load acoustic model and decode config
     trans_model_ = new kaldi::TransitionModel();
     nnet_ = new kaldi::nnet3::AmNnetSimple();
     {
@@ -236,36 +191,13 @@ void Model::ReadDataFiles()
     decodable_info_ = new nnet3::DecodableNnetSimpleLoopedInfo(decodable_opts_,
                                                                nnet_);
 
-    if (stat(final_ie_rxfilename_.c_str(), &buffer) == 0) {
-        KALDI_LOG << "Loading i-vector extractor from " << final_ie_rxfilename_;
-
-        OnlineIvectorExtractionConfig ivector_extraction_opts;
-        ivector_extraction_opts.splice_config_rxfilename = model_path_str_ + "/ivector/splice.conf";
-        ivector_extraction_opts.cmvn_config_rxfilename = model_path_str_ + "/ivector/online_cmvn.conf";
-        ivector_extraction_opts.lda_mat_rxfilename = model_path_str_ + "/ivector/final.mat";
-        ivector_extraction_opts.global_cmvn_stats_rxfilename = model_path_str_ + "/ivector/global_cmvn.stats";
-        ivector_extraction_opts.diag_ubm_rxfilename = model_path_str_ + "/ivector/final.dubm";
-        ivector_extraction_opts.ivector_extractor_rxfilename = model_path_str_ + "/ivector/final.ie";
-        ivector_extraction_opts.max_count = 100;
-
-        feature_info_.use_ivectors = true;
-        feature_info_.ivector_extractor_info.Init(ivector_extraction_opts);
-    } else {
-        feature_info_.use_ivectors = false;
+    //load global cmvn
+    if (stat(feature_config_.global_cmvn_stats_rxfilename.c_str(), &buffer) == 0) {
+        KALDI_LOG << "Loading CMVN stats from " << feature_config_.global_cmvn_stats_rxfilename;
+        ReadKaldiObject(global_cmvn_stats_rxfilename_, &feature_info_->global_cmvn_stats);
     }
 
-    if (stat(global_cmvn_stats_rxfilename_.c_str(), &buffer) == 0) {
-        KALDI_LOG << "Reading CMVN stats from " << global_cmvn_stats_rxfilename_;
-        feature_info_.use_cmvn = true;
-        ReadKaldiObject(global_cmvn_stats_rxfilename_, &feature_info_.global_cmvn_stats);
-    }
-
-    if (stat(pitch_conf_rxfilename_.c_str(), &buffer) == 0) {
-        KALDI_LOG << "Using pitch in feature pipeline";
-        feature_info_.add_pitch = true;
-        ReadConfigFromFile(pitch_conf_rxfilename_, &feature_info_.pitch_opts);
-    }
-
+    //load decode graph
     if (stat(hclg_fst_rxfilename_.c_str(), &buffer) == 0) {
         KALDI_LOG << "Loading HCLG from " << hclg_fst_rxfilename_;
         hclg_fst_ = fst::ReadFstKaldiGeneric(hclg_fst_rxfilename_);
@@ -276,6 +208,7 @@ void Model::ReadDataFiles()
         ReadIntegerVectorSimple(disambig_rxfilename_, &disambig_);
     }
 
+    //load word symbol
     if (hclg_fst_ && hclg_fst_->OutputSymbols()) {
         word_syms_ = hclg_fst_->OutputSymbols();
     } else if (g_fst_ && g_fst_->OutputSymbols()) {
@@ -286,17 +219,17 @@ void Model::ReadDataFiles()
         if (!(word_syms_ = fst::SymbolTable::ReadText(word_syms_rxfilename_)))
             KALDI_ERR << "Could not read symbol table from file "
                       << word_syms_rxfilename_;
-        word_syms_loaded_ = word_syms_;
     }
     KALDI_ASSERT(word_syms_);
 
+    //load word boundary used to compute word timestamps
     if (stat(winfo_rxfilename_.c_str(), &buffer) == 0) {
         KALDI_LOG << "Loading winfo " << winfo_rxfilename_;
         kaldi::WordBoundaryInfoNewOpts opts;
         winfo_ = new kaldi::WordBoundaryInfo(opts, winfo_rxfilename_);
     }
 
-    // RNNLM Rescoring
+    //load rescoring model (Graph rescoring | RNNLM rescoring)
     if (stat(rnnlm_lm_rxfilename_.c_str(), &buffer) == 0) {
         KALDI_LOG << "Loading RNNLM model from " << rnnlm_lm_rxfilename_;
 
@@ -320,7 +253,6 @@ void Model::ReadDataFiles()
         ReadConfigFromFile(rnnlm_config_rxfilename_, &rnnlm_compute_opts);
 
     } else if (stat(carpa_rxfilename_.c_str(), &buffer) == 0) {
-
         KALDI_LOG << "Loading CARPA model from " << carpa_rxfilename_;
         std_lm_fst_ = fst::ReadFstKaldi(std_fst_rxfilename_);
         fst::Project(std_lm_fst_, fst::ProjectType::OUTPUT);
@@ -330,7 +262,18 @@ void Model::ReadDataFiles()
         }
         ReadKaldiObject(carpa_rxfilename_, &const_arpa_);
     }
+
+    //save the default sample frequence
+    sample_frequency_ = feature_info_->mfcc_opts.frame_opts.samp_freq;
+
+    //Check silence_weighting is activeted or not
+    string silweightstatus = (!feature_info_->silence_weighting_config.silence_phones_str.empty() &&
+      feature_info_->silence_weighting_config.silence_weight != 1.0) ? "activated (weight=" + to_string(feature_info_->silence_weighting_config.silence_weight) + ")" : "deactivated";
+    KALDI_LOG << "Ivector silence weighting is " << silweightstatus;
 }
+
+
+
 
 void Model::Ref() 
 {
@@ -357,8 +300,7 @@ Model::~Model() {
     delete decodable_info_;
     delete trans_model_;
     delete nnet_;
-    if (word_syms_loaded_)
-        delete word_syms_;
+    delete word_syms_;
     delete winfo_;
     delete hclg_fst_;
     delete hcl_fst_;

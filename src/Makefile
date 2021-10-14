@@ -1,5 +1,5 @@
 # Locations of the dependencies
-KALDI_ROOT?=$(HOME)/travis/kaldi
+KALDI_ROOT?=/opt/kaldi
 OPENFST_ROOT?=$(KALDI_ROOT)/tools/openfst
 OPENBLAS_ROOT?=$(KALDI_ROOT)/tools/OpenBLAS/install
 MKL_ROOT?=/opt/intel/mkl
@@ -17,9 +17,9 @@ EXTRA_CFLAGS?=
 EXTRA_LDFLAGS?=
 
 VOSK_SOURCES= \
+	model.cc \
 	kaldi_recognizer.cc \
 	language_model.cc \
-	model.cc \
 	spk_model.cc \
 	vosk_api.cc
 

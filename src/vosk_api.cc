@@ -25,9 +25,9 @@
 
 using namespace kaldi;
 
-VoskModel *vosk_model_new(const char *model_path)
+VoskModel *vosk_model_new(const char *acmodel_path, const char *langmodel_path, const char *config_file_path)
 {
-    return (VoskModel *)new Model(model_path);
+    return (VoskModel *)new Model(acmodel_path, langmodel_path, config_file_path);
 }
 
 void vosk_model_free(VoskModel *model)
@@ -50,9 +50,9 @@ void vosk_spk_model_free(VoskSpkModel *model)
     ((SpkModel *)model)->Unref();
 }
 
-VoskRecognizer *vosk_recognizer_new(VoskModel *model, float sample_rate)
+VoskRecognizer *vosk_recognizer_new(VoskModel *model, float sample_rate, bool online)
 {
-    return (VoskRecognizer *)new KaldiRecognizer((Model *)model, sample_rate);
+    return (VoskRecognizer *)new KaldiRecognizer((Model *)model, sample_rate, online);
 }
 
 VoskRecognizer *vosk_recognizer_new_spk(VoskModel *model, float sample_rate, VoskSpkModel *spk_model)

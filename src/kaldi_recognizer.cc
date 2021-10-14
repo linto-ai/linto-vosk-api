@@ -21,12 +21,20 @@
 using namespace fst;
 using namespace kaldi::nnet3;
 
-KaldiRecognizer::KaldiRecognizer(Model *model, float sample_frequency) : model_(model), spk_model_(0), sample_frequency_(sample_frequency) {
+KaldiRecognizer::KaldiRecognizer(Model *model, float sample_frequency, bool online) : model_(model), spk_model_(0), sample_frequency_(sample_frequency), online_(online) {
 
     model_->Ref();
 
-    feature_pipeline_ = new kaldi::OnlineNnet2FeaturePipeline (model_->feature_info_);
-    silence_weighting_ = new kaldi::OnlineSilenceWeighting(*model_->trans_model_, model_->feature_info_.silence_weighting_config, 3);
+    if (online_) {
+        model_->feature_info_->ivector_extractor_info.use_most_recent_ivector = true;
+        model_->feature_info_->ivector_extractor_info.greedy_ivector_extractor = true;
+    } else {
+        model_->feature_info_->ivector_extractor_info.use_most_recent_ivector = false;
+        model_->feature_info_->ivector_extractor_info.greedy_ivector_extractor = false;
+    }
+
+    feature_pipeline_ = new kaldi::OnlineNnet2FeaturePipeline (*model_->feature_info_);
+    silence_weighting_ = new kaldi::OnlineSilenceWeighting(*model_->trans_model_, model_->feature_info_->silence_weighting_config, 3);
 
     if (!model_->hclg_fst_) {
         if (model_->hcl_fst_ && model_->g_fst_) {
@@ -46,12 +54,11 @@ KaldiRecognizer::KaldiRecognizer(Model *model, float sample_frequency) : model_(
     InitRescoring();
 }
 
-KaldiRecognizer::KaldiRecognizer(Model *model, float sample_frequency, char const *grammar) : model_(model), spk_model_(0), sample_frequency_(sample_frequency)
-{
+KaldiRecognizer::KaldiRecognizer(Model *model, float sample_frequency, char const *grammar) : model_(model), spk_model_(0), sample_frequency_(sample_frequency){
     model_->Ref();
 
-    feature_pipeline_ = new kaldi::OnlineNnet2FeaturePipeline (model_->feature_info_);
-    silence_weighting_ = new kaldi::OnlineSilenceWeighting(*model_->trans_model_, model_->feature_info_.silence_weighting_config, 3);
+    feature_pipeline_ = new kaldi::OnlineNnet2FeaturePipeline (*model_->feature_info_);
+    silence_weighting_ = new kaldi::OnlineSilenceWeighting(*model_->trans_model_, model_->feature_info_->silence_weighting_config, 3);
 
     if (model_->hcl_fst_) {
         json::JSON obj;
@@ -112,8 +119,8 @@ KaldiRecognizer::KaldiRecognizer(Model *model, float sample_frequency, SpkModel 
     model_->Ref();
     spk_model->Ref();
 
-    feature_pipeline_ = new kaldi::OnlineNnet2FeaturePipeline (model_->feature_info_);
-    silence_weighting_ = new kaldi::OnlineSilenceWeighting(*model_->trans_model_, model_->feature_info_.silence_weighting_config, 3);
+    feature_pipeline_ = new kaldi::OnlineNnet2FeaturePipeline (*model_->feature_info_);
+    silence_weighting_ = new kaldi::OnlineSilenceWeighting(*model_->trans_model_, model_->feature_info_->silence_weighting_config, 3);
 
     if (!model_->hclg_fst_) {
         if (model_->hcl_fst_ && model_->g_fst_) {
@@ -187,7 +194,7 @@ void KaldiRecognizer::InitRescoring()
 void KaldiRecognizer::CleanUp()
 {
     delete silence_weighting_;
-    silence_weighting_ = new kaldi::OnlineSilenceWeighting(*model_->trans_model_, model_->feature_info_.silence_weighting_config, 3);
+    silence_weighting_ = new kaldi::OnlineSilenceWeighting(*model_->trans_model_, model_->feature_info_->silence_weighting_config, 3);
 
     if (decoder_)
        frame_offset_ += decoder_->NumFramesDecoded();
@@ -206,7 +213,7 @@ void KaldiRecognizer::CleanUp()
         delete decoder_;
         delete feature_pipeline_;
 
-        feature_pipeline_ = new kaldi::OnlineNnet2FeaturePipeline (model_->feature_info_);
+        feature_pipeline_ = new kaldi::OnlineNnet2FeaturePipeline (*model_->feature_info_);
         decoder_ = new kaldi::SingleUtteranceNnet3Decoder(model_->nnet3_decoding_config_,
             *model_->trans_model_,
             *model_->decodable_info_,
@@ -237,6 +244,7 @@ void KaldiRecognizer::UpdateSilenceWeights()
 
 void KaldiRecognizer::SetMaxAlternatives(int max_alternatives)
 {
+    KALDI_ASSERT(max_alternatives > 0);
     max_alternatives_ = max_alternatives;
 }
 
@@ -291,13 +299,13 @@ bool KaldiRecognizer::AcceptWaveform(Vector<BaseFloat> &wdata)
     }
     state_ = RECOGNIZER_RUNNING;
 
-    int step = static_cast<int>(sample_frequency_ * 0.2);
-    for (int i = 0; i < wdata.Dim(); i+= step) {
-        SubVector<BaseFloat> r = wdata.Range(i, std::min(step, wdata.Dim() - i));
-        feature_pipeline_->AcceptWaveform(sample_frequency_, r);
+    feature_pipeline_->AcceptWaveform(sample_frequency_, wdata);
+
+    if (online_) {
         UpdateSilenceWeights();
         decoder_->AdvanceDecoding();
     }
+    
     samples_processed_ += wdata.Dim();
 
     if (spk_feature_) {
@@ -424,6 +432,7 @@ const char *KaldiRecognizer::MbrResult(CompactLattice &rlat)
           mbr.GetOneBestTimes();
 
     int size = words.size();
+    tot_size += size;
 
     json::JSON obj;
     stringstream text;
@@ -431,21 +440,31 @@ const char *KaldiRecognizer::MbrResult(CompactLattice &rlat)
     // Create JSON object
     for (int i = 0; i < size; i++) {
         json::JSON word;
+        string w = model_->word_syms_->Find(words[i]);
+        std::size_t found = w.find("#nonterm:");
 
-        if (words_) {
-            word["word"] = model_->word_syms_->Find(words[i]);
-            word["start"] = samples_round_start_ / sample_frequency_ + (frame_offset_ + times[i].first) * 0.03;
-            word["end"] = samples_round_start_ / sample_frequency_ + (frame_offset_ + times[i].second) * 0.03;
-            word["conf"] = conf[i];
-            obj["result"].append(word);
+        if (w.compare("<unk>") != 0 && found == std::string::npos) {
+            if (words_) {
+                word["word"] = w;
+                word["start"] = samples_round_start_ / sample_frequency_ + (frame_offset_ + times[i].first) * 0.03;
+                word["end"] = samples_round_start_ / sample_frequency_ + (frame_offset_ + times[i].second) * 0.03;
+                word["conf"] = conf[i];
+                obj["words"].append(word);
+            }
+            confidence += conf[i];
+            text << w << " ";
         }
-
-        if (i) {
-            text << " ";
-        }
-        text << model_->word_syms_->Find(words[i]);
     }
-    obj["text"] = text.str();
+    std::string text_ = text.str();
+    size_t pos;
+    while ((pos = text_.find("' ")) != std::string::npos) {
+        text_.replace(pos, 2, "'");
+    }
+
+    obj["text"] = text_;
+
+    if (state_ == RECOGNIZER_FINALIZED)
+        obj["confidence"] = confidence / (float)tot_size;
 
     if (spk_model_) {
         Vector<BaseFloat> xvector;
@@ -567,7 +586,7 @@ const char *KaldiRecognizer::NbestResult(CompactLattice &clat)
             word["word"] = model_->word_syms_->Find(words[i]);
             word["start"] = samples_round_start_ / sample_frequency_ + (frame_offset_ + begin_times[i]) * 0.03;
             word["end"] = samples_round_start_ / sample_frequency_ + (frame_offset_ + begin_times[i] + lengths[i]) * 0.03;
-            entry["result"].append(word);
+            entry["words"].append(word);
         }
         if (i)
           text << " ";
@@ -580,6 +599,40 @@ const char *KaldiRecognizer::NbestResult(CompactLattice &clat)
     }
 
     return StoreReturn(obj.dump());
+}
+
+const char* KaldiRecognizer::TextResult(CompactLattice &clat)
+{
+    kaldi::CompactLattice best_path_clat;
+    kaldi::CompactLatticeShortestPath(clat, &best_path_clat);
+   
+    kaldi::Lattice best_path_lat;
+    ConvertLattice(best_path_clat, &best_path_lat);
+
+    kaldi::LatticeWeight weight;
+    std::vector<int32> alignment;
+    std::vector<int32> words;
+    fst::GetLinearSymbolSequence(best_path_lat, &alignment, &words, &weight);
+
+    int size = words.size();
+
+    stringstream text;
+
+    for (int i = 0; i < size; i++) {
+        std::string w = model_->word_syms_->Find(words[i]);
+        std::size_t found = w.find("#nonterm:");
+
+        if (w.compare("<unk>") != 0 && found == std::string::npos) {
+            text << w << " ";
+        }       
+    }
+    std::string text_ = text.str();
+    size_t pos;
+    while ((pos = text_.find("' ")) != std::string::npos) {
+        text_.replace(pos, 2, "'");
+    }
+
+    return StoreReturn("{\"text\": \""+text_+"\"}");
 }
 
 const char* KaldiRecognizer::GetResult()
@@ -628,10 +681,14 @@ const char* KaldiRecognizer::GetResult()
         rlat = clat;
     }
 
-    fst::ScaleLattice(fst::GraphLatticeScale(0.9), &rlat); // Apply rescoring weight
+    if (rlat.NumStates() == 0)
+        return StoreEmptyReturn();
 
-    if (max_alternatives_ == 0) {
-        return MbrResult(rlat);
+    if (max_alternatives_ == 1) {
+        if (words_)
+            return MbrResult(rlat);
+        else
+            return TextResult(rlat);
     } else {
         return NbestResult(rlat);
     }
@@ -719,7 +776,7 @@ void KaldiRecognizer::Reset()
 
 const char *KaldiRecognizer::StoreEmptyReturn()
 {
-    if (!max_alternatives_) {
+    if (max_alternatives_ == 1) {
         return StoreReturn("{\"text\": \"\"}");
     } else {
         return StoreReturn("{\"alternatives\" : [{\"text\": \"\", \"confidence\" : 1.0}] }");

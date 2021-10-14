@@ -41,20 +41,21 @@ class KaldiRecognizer;
 class Model {
 
 public:
-    Model(const char *model_path);
+    Model(const char *acmodel_path, const char *langmodel_path, const char *config_file_path);
     void Ref();
     void Unref();
     int FindWord(const char *word);
 
 protected:
     ~Model();
-    void ConfigureV1();
-    void ConfigureV2();
+    void Configure();
     void ReadDataFiles();
 
     friend class KaldiRecognizer;
 
-    string model_path_str_;
+    string acmodel_path_str_;
+    string langmodel_path_str_;
+    string config_file_path_str_;
     string nnet3_rxfilename_;
     string hclg_fst_rxfilename_;
     string hcl_fst_rxfilename_;
@@ -77,14 +78,14 @@ protected:
 
     kaldi::OnlineEndpointConfig endpoint_config_;
     kaldi::LatticeFasterDecoderConfig nnet3_decoding_config_;
+    kaldi::OnlineNnet2FeaturePipelineConfig feature_config_;
     kaldi::nnet3::NnetSimpleLoopedComputationOptions decodable_opts_;
-    kaldi::OnlineNnet2FeaturePipelineInfo feature_info_;
+    kaldi::OnlineNnet2FeaturePipelineInfo *feature_info_;
 
     kaldi::nnet3::DecodableNnetSimpleLoopedInfo *decodable_info_ = nullptr;
     kaldi::TransitionModel *trans_model_ = nullptr;
     kaldi::nnet3::AmNnetSimple *nnet_ = nullptr;
     const fst::SymbolTable *word_syms_ = nullptr;
-    bool word_syms_loaded_ = false;
     kaldi::WordBoundaryInfo *winfo_ = nullptr;
     vector<int32> disambig_;
 
@@ -101,6 +102,8 @@ protected:
     kaldi::nnet3::Nnet rnnlm;
 
     std::atomic<int> ref_cnt_;
+    int sample_frequency_;
+
 };
 
 #endif /* VOSK_MODEL_H */
